@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Livros — Biblioteca</title>
+  <link rel="stylesheet" href="../css/style.css">
+  <script src="../js/config.js"></script>
+  <script src="../js/api.js"></script>
+  <script src="../js/utils.js"></script>
+  <script src="../js/nav.js"></script>
+  <script src="../js/scanner.js"></script>
+</head>
+<body>
+<div class="app-shell">
+  <header class="topbar">
+    <div class="topbar-brand"><div class="logo-mark">📚</div><h1>Biblio<span>teca</span></h1></div>
+    <div class="topbar-right"><button class="btn-logout" onclick="Auth.logout()">Sair</button></div>
+  </header>
+  <nav class="sidebar" id="sidebar"></nav>
+  <main class="main">
+    <div class="page-header">
+      <div><h2>Livros</h2><p>Gestão do acervo bibliográfico</p></div>
+      <button class="btn btn-gold" onclick="abrirNovoLivro()">+ Novo livro</button>
+    </div>
+
+    <!-- Scanner banner -->
+    <div style="background:var(--ink);border-radius:var(--radius-lg);padding:1rem 1.25rem;
+      display:flex;align-items:center;justify-content:space-between;gap:1rem;
+      margin-bottom:1.5rem;flex-wrap:wrap">
+      <div>
+        <div style="color:#fff;font-weight:500">📷 Registar por código de barras ou QR</div>
+        <div style="color:rgba(255,255,255,.45);font-size:.78rem;margin-top:2px">Usa a câmara para ler o ISBN do livro</div>
+      </div>
+      <button class="btn" onclick="abrirScanner()"
+        style="background:var(--gold);color:var(--ink);font-weight:500;white-space:nowrap">
+        📷 Abrir câmara
+      </button>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="toolbar-left">
+          <div class="search-bar"><span>🔍</span>
+            <input type="text" id="search" placeholder="Título, autor, ISBN..." oninput="renderTable()">
+          </div>
+          <select id="filter-cat" onchange="renderTable()" style="width:auto;padding:6px 10px">
+            <option value="">Todas as categorias</option>
+            <option>Romance</option><option>Ciência</option><option>História</option>
+            <option>Tecnologia</option><option>Filosofia</option><option>Arte</option>
+            <option>Direito</option><option>Medicina</option><option>Educação</option><option>Outro</option>
+          </select>
+          <select id="filter-estado" onchange="renderTable()" style="width:auto;padding:6px 10px">
+            <option value="">Todos os estados</option>
+            <option>Disponível</option><option>Indisponível</option>
+          </select>
+        </div>
+        <span id="count-label" style="font-size:.8rem;color:var(--ink-3)"></span>
+      </div>
+      <div id="table-container"></div>
+    </div>
+  </main>
+</div>
+<nav class="mobile-nav" id="mobile-nav"></nav>
+
+<!-- Modal Livro -->
+<div class="modal" id="modal-livro">
+  <div class="modal-backdrop"></div>
+  <div class="modal-box">
+    <div class="modal-header">
+      <h3 id="modal-title">Novo livro</h3>
+      <button class="modal-close" onclick="closeModal('modal-livro')">×</button>
+    </div>
+    <div class="modal-body">
+      <form id="form-livro">
+        <div class="form-grid">
+          <div class="form-group full"><label>Título</label>
+            <input type="text" name="titulo" required autofocus placeholder="Título completo"></div>
+          <div class="form-group"><label>Autor</label>
+            <input type="text" name="autor" required placeholder="Nome do autor"></div>
+          <div class="form-group"><label>Editora</label>
+            <input type="text" name="editora" placeholder="Nome da editora"></div>
+          <div class="form-group"><label>Categoria</label>
+            <select name="categoria">
+              <option>Romance</option><option>Ciência</option><option>História</option>
+              <option>Tecnologia</option><option>Filosofia</option><option>Arte</option>
+              <option>Direito</option><option>Medicina</option><option>Educação</option><option>Outro</option>
+            </select></div>
+          <div class="form-group"><label>Código</label>
+            <input type="text" name="codigo" placeholder="Ex: LV-001"></div>
+          <div class="form-group">
+            <label>ISBN <button type="button"
+              onclick="Scanner.open(c=>{document.querySelector('input[name=isbn]').value=c;toast('ISBN: '+c,'success');})"
+              style="margin-left:6px;font-size:.7rem;padding:2px 8px;border-radius:4px;
+                border:1px solid var(--mist-3);background:var(--mist);cursor:pointer">📷 Scan</button></label>
+            <input type="text" name="isbn" placeholder="978-..."></div>
+          <div class="form-group"><label>Nº exemplares</label>
+            <input type="number" name="quantidade" min="1" value="1"></div>
+          <div class="form-group"><label>Estante</label>
+            <input type="text" name="localizacao" placeholder="Ex: A3-P2"></div>
+          <div class="form-group"><label>Estado</label>
+            <select name="estado">
+              <option>Disponível</option><option>Indisponível</option>
+              <option>Em restauro</option><option>Perdido</option>
+            </select></div>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal-livro')">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveLivro()">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+<div id="overlay" class="overlay hidden"><div class="spinner"></div></div>
+<script>
+buildNav('livros');
+let allLivros = [], editingId = null;
+
+function abrirScanner() {
+  Scanner.open(code => {
+    const existing = allLivros.find(l => l.isbn === code);
+    if (existing) { toast('Livro já registado: ' + existing.titulo, 'info'); editLivro(existing.id); return; }
+    editingId = null;
+    document.getElementById('form-livro').reset();
+    document.getElementById('modal-title').textContent = 'Novo livro — ISBN lido';
+    document.querySelector('input[name=isbn]').value = code;
+    toast('ISBN ' + code + ' lido!', 'success');
+    openModal('modal-livro');
+    setTimeout(() => document.querySelector('input[name=titulo]').focus(), 150);
+  });
+}
+function abrirNovoLivro() {
+  editingId = null;
+  document.getElementById('modal-title').textContent = 'Novo livro';
+  document.getElementById('form-livro').reset();
+  openModal('modal-livro');
+}
+async function load() {
+  setLoading(true);
+  try { allLivros = await API.getLivros(); renderTable(); }
+  catch(e) { toast(e.message,'error'); }
+  finally { setLoading(false); }
+}
+function renderTable() {
+  const q    = document.getElementById('search').value.toLowerCase();
+  const fCat = document.getElementById('filter-cat').value;
+  const fEst = document.getElementById('filter-estado').value;
+  const rows = allLivros.filter(l =>
+    (!q || (l.titulo||'').toLowerCase().includes(q) || (l.autor||'').toLowerCase().includes(q) || (l.isbn||'').includes(q) || (l.codigo||'').toLowerCase().includes(q)) &&
+    (!fCat || l.categoria===fCat) && (!fEst || l.estado===fEst)
+  );
+  document.getElementById('count-label').textContent = `${rows.length} livro(s)`;
+  buildTable(document.getElementById('table-container'), [
+    { key:'codigo',     label:'Código' },
+    { key:'titulo',     label:'Título' },
+    { key:'autor',      label:'Autor' },
+    { key:'categoria',  label:'Categoria', render:r=>`<span class="badge badge-gold">${r.categoria||''}</span>` },
+    { key:'isbn',       label:'ISBN' },
+    { key:'quantidade', label:'Exemplares', render:r=>`${r.disponiveis}/${r.quantidade}` },
+    { key:'localizacao',label:'Estante' },
+    { key:'estado',     label:'Estado', render:r=>estadoBadge(r.estado) },
+  ], rows, r=>`
+    <button class="btn btn-ghost btn-xs" onclick="editLivro('${r.id}')">✏️</button>
+    <button class="btn btn-danger btn-xs" onclick="deleteLivro('${r.id}')">🗑</button>`);
+}
+function editLivro(id) {
+  const l = allLivros.find(x=>x.id===id); if(!l) return;
+  editingId = id;
+  document.getElementById('modal-title').textContent = 'Editar livro';
+  fillForm('form-livro', {...l, estadoConta: l.estado_conta});
+  openModal('modal-livro');
+}
+async function saveLivro() {
+  const data = formToObj('form-livro');
+  if (!data.titulo||!data.autor) { toast('Preencha título e autor.','error'); return; }
+  setLoading(true);
+  try {
+    if (editingId) { data.id=editingId; await API.updateLivro(data); toast('Actualizado!'); }
+    else { await API.addLivro(data); toast('Livro adicionado!'); }
+    closeModal('modal-livro'); await load();
+  } catch(e) { toast(e.message,'error'); }
+  finally { setLoading(false); }
+}
+async function deleteLivro(id) {
+  if(!confirm('Eliminar este livro?')) return;
+  setLoading(true);
+  try { await API.deleteLivro(id); toast('Eliminado.'); await load(); }
+  catch(e) { toast(e.message,'error'); }
+  finally { setLoading(false); }
+}
+load();
+</script>
+</body>
+</html>

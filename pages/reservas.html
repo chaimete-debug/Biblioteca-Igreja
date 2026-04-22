@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Reservas — Biblioteca</title>
+  <link rel="stylesheet" href="../css/style.css">
+  <script src="../js/config.js"></script><script src="../js/api.js"></script>
+  <script src="../js/utils.js"></script><script src="../js/nav.js"></script>
+</head>
+<body>
+<div class="app-shell">
+  <header class="topbar">
+    <div class="topbar-brand"><div class="logo-mark">📚</div><h1>Biblio<span>teca</span></h1></div>
+    <div class="topbar-right"><button class="btn-logout" onclick="Auth.logout()">Sair</button></div>
+  </header>
+  <nav class="sidebar" id="sidebar"></nav>
+  <main class="main">
+    <div class="page-header">
+      <div><h2>Reservas</h2><p>Fila de espera</p></div>
+      <button class="btn btn-gold" onclick="abrirModal()">+ Nova reserva</button>
+    </div>
+    <div class="card"><div id="table-container"></div></div>
+  </main>
+</div>
+<nav class="mobile-nav" id="mobile-nav"></nav>
+<div class="modal" id="modal-res">
+  <div class="modal-backdrop"></div>
+  <div class="modal-box">
+    <div class="modal-header"><h3>Nova reserva</h3>
+      <button class="modal-close" onclick="closeModal('modal-res')">×</button></div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group full"><label>Leitor</label><select id="sel-util" style="width:100%"></select></div>
+        <div class="form-group full"><label>Livro</label><select id="sel-livro" style="width:100%"></select></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal-res')">Cancelar</button>
+      <button class="btn btn-primary" onclick="save()">Reservar</button>
+    </div>
+  </div>
+</div>
+<div id="toast" class="toast"></div>
+<div id="overlay" class="overlay hidden"><div class="spinner"></div></div>
+<script>
+buildNav('reservas');
+let allRes=[];
+async function load() {
+  setLoading(true);
+  try { allRes=await API.getReservas(); renderTable(); }
+  catch(e){toast(e.message,'error');} finally{setLoading(false);}
+}
+function renderTable() {
+  const rows=allRes.filter(r=>r.estado==='Aguardando'||r.estado==='Disponível - Notificado');
+  buildTable(document.getElementById('table-container'),[
+    {label:'Pos.', render:r=>`<span class="badge badge-gray">#${r.posicao}</span>`},
+    {label:'Leitor', render:r=>r.utilizador?.nome||r.utilizador_id},
+    {label:'Livro',  render:r=>r.livro?.titulo||r.livro_id},
+    {label:'Estado', render:r=>estadoBadge(r.estado==='Aguardando'?'Aguardando':'Disponível')},
+    {label:'Data',   render:r=>fmtDate(r.criado_em)},
+  ],rows,r=>`<button class="btn btn-danger btn-xs" onclick="cancelar('${r.id}')">Cancelar</button>`);
+}
+async function abrirModal() {
+  const [l,u]=await Promise.all([API.getLivros(),API.getUtilizadores()]);
+  document.getElementById('sel-livro').innerHTML=l.map(x=>`<option value="${x.id}">${x.titulo} (${x.estado})</option>`).join('');
+  document.getElementById('sel-util').innerHTML=u.filter(x=>x.estado_conta==='Activo').map(x=>`<option value="${x.id}">${x.nome}</option>`).join('');
+  openModal('modal-res');
+}
+async function save() {
+  const livroId=document.getElementById('sel-livro').value;
+  const utilizadorId=document.getElementById('sel-util').value;
+  if(!livroId||!utilizadorId) return;
+  setLoading(true);
+  try {
+    const r=await API.addReserva({livroId,utilizadorId});
+    toast(`Reserva feita! Posição: #${r[0]?.posicao||'?'}`); closeModal('modal-res'); await load();
+  } catch(e){toast(e.message,'error');} finally{setLoading(false);}
+}
+async function cancelar(id) {
+  if(!confirm('Cancelar reserva?')) return;
+  setLoading(true);
+  try{await API.cancelarReserva(id);toast('Cancelada.');await load();}
+  catch(e){toast(e.message,'error');}finally{setLoading(false);}
+}
+load();
+</script>
+</body>
+</html>

@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Utilizadores — Biblioteca</title>
+  <link rel="stylesheet" href="../css/style.css">
+  <script src="../js/config.js"></script><script src="../js/api.js"></script>
+  <script src="../js/utils.js"></script><script src="../js/nav.js"></script>
+</head>
+<body>
+<div class="app-shell">
+  <header class="topbar">
+    <div class="topbar-brand"><div class="logo-mark">📚</div><h1>Biblio<span>teca</span></h1></div>
+    <div class="topbar-right"><button class="btn-logout" onclick="Auth.logout()">Sair</button></div>
+  </header>
+  <nav class="sidebar" id="sidebar"></nav>
+  <main class="main">
+    <div class="page-header">
+      <div><h2>Utilizadores</h2><p>Gestão de leitores</p></div>
+      <button class="btn btn-gold" onclick="abrirNovo()">+ Novo utilizador</button>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <div class="toolbar-left">
+          <div class="search-bar"><span>🔍</span>
+            <input type="text" id="search" placeholder="Nome, email, NID..." oninput="renderTable()">
+          </div>
+          <select id="filter-tipo" onchange="renderTable()" style="width:auto;padding:6px 10px">
+            <option value="">Todos os tipos</option>
+            <option>Aluno</option><option>Professor</option><option>Funcionário</option><option>Público</option>
+          </select>
+        </div>
+        <span id="count-label" style="font-size:.8rem;color:var(--ink-3)"></span>
+      </div>
+      <div id="table-container"></div>
+    </div>
+  </main>
+</div>
+<nav class="mobile-nav" id="mobile-nav"></nav>
+
+<div class="modal" id="modal-util">
+  <div class="modal-backdrop"></div>
+  <div class="modal-box">
+    <div class="modal-header">
+      <h3 id="modal-title">Novo utilizador</h3>
+      <button class="modal-close" onclick="closeModal('modal-util')">×</button>
+    </div>
+    <div class="modal-body">
+      <form id="form-util">
+        <div class="form-grid">
+          <div class="form-group full"><label>Nome completo</label>
+            <input type="text" name="nome" required autofocus placeholder="Nome completo"></div>
+          <div class="form-group"><label>Telefone</label>
+            <input type="tel" name="telefone" placeholder="+258 84 ..."></div>
+          <div class="form-group"><label>Email</label>
+            <input type="email" name="email" placeholder="email@exemplo.com"></div>
+          <div class="form-group"><label>NID / BI</label>
+            <input type="text" name="nid" placeholder="Ex: 123456789L"></div>
+          <div class="form-group"><label>Tipo</label>
+            <select name="tipo"><option>Aluno</option><option>Professor</option>
+              <option>Funcionário</option><option>Público</option></select></div>
+          <div class="form-group full"><label>Morada</label>
+            <input type="text" name="morada" placeholder="Endereço completo"></div>
+          <div class="form-group"><label>Estado da conta</label>
+            <select name="estadoConta"><option>Activo</option><option>Suspenso</option><option>Inactivo</option></select></div>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal-util')">Cancelar</button>
+      <button class="btn btn-primary" onclick="save()">Guardar</button>
+    </div>
+  </div>
+</div>
+<div id="toast" class="toast"></div>
+<div id="overlay" class="overlay hidden"><div class="spinner"></div></div>
+<script>
+buildNav('utilizadores');
+let all = [], editingId = null;
+function abrirNovo() { editingId=null; document.getElementById('modal-title').textContent='Novo utilizador'; document.getElementById('form-util').reset(); openModal('modal-util'); }
+async function load() {
+  setLoading(true);
+  try { all = await API.getUtilizadores(); renderTable(); }
+  catch(e) { toast(e.message,'error'); } finally { setLoading(false); }
+}
+function renderTable() {
+  const q  = document.getElementById('search').value.toLowerCase();
+  const fT = document.getElementById('filter-tipo').value;
+  const rows = all.filter(u =>
+    (!q || (u.nome||'').toLowerCase().includes(q)||(u.email||'').toLowerCase().includes(q)||(u.nid||'').includes(q)) &&
+    (!fT || u.tipo===fT)
+  );
+  document.getElementById('count-label').textContent = `${rows.length} utilizador(es)`;
+  buildTable(document.getElementById('table-container'), [
+    {key:'nome',        label:'Nome'},
+    {key:'nid',         label:'NID/BI'},
+    {key:'tipo',        label:'Tipo', render:r=>`<span class="badge badge-blue">${r.tipo||''}</span>`},
+    {key:'telefone',    label:'Telefone'},
+    {key:'email',       label:'Email'},
+    {key:'estado_conta',label:'Estado', render:r=>estadoBadge(r.estado_conta==='Activo'?'Activo':'Atrasado')},
+  ], rows, r=>`
+    <button class="btn btn-ghost btn-xs" onclick="edit('${r.id}')">✏️</button>
+    <button class="btn btn-danger btn-xs" onclick="del('${r.id}')">🗑</button>`);
+}
+function edit(id) {
+  const u = all.find(x=>x.id===id); if(!u) return;
+  editingId = id;
+  document.getElementById('modal-title').textContent='Editar utilizador';
+  fillForm('form-util', {...u, estadoConta: u.estado_conta});
+  openModal('modal-util');
+}
+async function save() {
+  const data = formToObj('form-util');
+  if (!data.nome) { toast('Preencha o nome.','error'); return; }
+  setLoading(true);
+  try {
+    if (editingId) { data.id=editingId; await API.updateUtilizador(data); toast('Actualizado!'); }
+    else { await API.addUtilizador(data); toast('Utilizador registado!'); }
+    closeModal('modal-util'); await load();
+  } catch(e) { toast(e.message,'error'); } finally { setLoading(false); }
+}
+async function del(id) {
+  if(!confirm('Eliminar utilizador?')) return;
+  setLoading(true);
+  try { await API.deleteUtilizador(id); toast('Eliminado.'); await load(); }
+  catch(e) { toast(e.message,'error'); } finally { setLoading(false); }
+}
+load();
+</script>
+</body>
+</html>

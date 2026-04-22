@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Devoluções — Biblioteca</title>
+  <link rel="stylesheet" href="../css/style.css">
+  <script src="../js/config.js"></script><script src="../js/api.js"></script>
+  <script src="../js/utils.js"></script><script src="../js/nav.js"></script>
+</head>
+<body>
+<div class="app-shell">
+  <header class="topbar">
+    <div class="topbar-brand"><div class="logo-mark">📚</div><h1>Biblio<span>teca</span></h1></div>
+    <div class="topbar-right"><button class="btn-logout" onclick="Auth.logout()">Sair</button></div>
+  </header>
+  <nav class="sidebar" id="sidebar"></nav>
+  <main class="main">
+    <div class="page-header"><div><h2>Devoluções</h2><p>Registar devolução de livros</p></div></div>
+    <div class="card" style="margin-bottom:1.5rem">
+      <div class="card-header"><h3>Registar devolução</h3></div>
+      <div class="card-body">
+        <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:.85rem;align-items:end;flex-wrap:wrap">
+          <div class="form-group"><label>Empréstimo activo</label>
+            <select id="sel-emp"><option value="">-- Seleccione --</option></select></div>
+          <div class="form-group"><label>Data real de devolução</label>
+            <input type="date" id="data-real"></div>
+          <button class="btn btn-teal" onclick="registar()">Confirmar devolução</button>
+        </div>
+        <div id="preview" style="margin-top:1rem"></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header"><h3>Histórico de devoluções</h3></div>
+      <div id="table-container"></div>
+    </div>
+  </main>
+</div>
+<nav class="mobile-nav" id="mobile-nav"></nav>
+<div id="toast" class="toast"></div>
+<div id="overlay" class="overlay hidden"><div class="spinner"></div></div>
+<script>
+buildNav('devolucoes');
+let allEmps=[], allLivros=[], allUtils=[];
+
+async function load() {
+  setLoading(true);
+  try {
+    [allEmps, allLivros, allUtils] = await Promise.all([
+      API.getEmprestimos(), API.getLivros(), API.getUtilizadores()
+    ]);
+    const activos = allEmps.filter(x=>x.estado==='Activo');
+    const hoje = new Date().toISOString().split('T')[0];
+    document.getElementById('sel-emp').innerHTML =
+      '<option value="">-- Seleccione --</option>' +
+      activos.map(e=>{
+        const l=e.livro?.titulo||allLivros.find(x=>x.id===e.livro_id)?.titulo||'?';
+        const u=e.utilizador?.nome||allUtils.find(x=>x.id===e.utilizador_id)?.nome||'?';
+        const late=e.data_prevista_devolucao<hoje;
+        return `<option value="${e.id}">${l} — ${u}${late?' ⚠️':''}`;
+      }).join('');
+    const urlEmp = new URLSearchParams(window.location.search).get('emp');
+    if (urlEmp) { document.getElementById('sel-emp').value=urlEmp; updatePreview(); }
+    document.getElementById('data-real').value = today();
+    renderHistorico();
+  } catch(e){toast(e.message,'error');} finally{setLoading(false);}
+}
+
+document.addEventListener('DOMContentLoaded', ()=>{
+  document.getElementById('sel-emp').addEventListener('change', updatePreview);
+  document.getElementById('data-real').addEventListener('change', updatePreview);
+});
+
+function updatePreview() {
+  const empId   = document.getElementById('sel-emp').value;
+  const dataReal = document.getElementById('data-real').value;
+  const preview  = document.getElementById('preview');
+  if (!empId||!dataReal){preview.innerHTML='';return;}
+  const emp = allEmps.find(e=>e.id===empId); if(!emp){preview.innerHTML='';return;}
+  const livro = emp.livro?.titulo || allLivros.find(l=>l.id===emp.livro_id)?.titulo || '—';
+  const util  = emp.utilizador?.nome || allUtils.find(u=>u.id===emp.utilizador_id)?.nome || '—';
+  const dias  = Math.max(0,Math.floor((new Date(dataReal)-new Date(emp.data_prevista_devolucao))/86400000));
+  const multa = dias*5;
+  preview.innerHTML=`
+    <div style="background:var(--mist);border-radius:var(--radius);padding:1rem;
+      display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:.75rem">
+      <div><div style="font-size:.7rem;color:var(--ink-3);text-transform:uppercase">Livro</div>
+        <div style="font-weight:500;margin-top:3px">${livro}</div></div>
+      <div><div style="font-size:.7rem;color:var(--ink-3);text-transform:uppercase">Leitor</div>
+        <div style="font-weight:500;margin-top:3px">${util}</div></div>
+      <div><div style="font-size:.7rem;color:var(--ink-3);text-transform:uppercase">Previsto</div>
+        <div style="font-weight:500;margin-top:3px">${fmtDate(emp.data_prevista_devolucao)}</div></div>
+      <div><div style="font-size:.7rem;color:var(--ink-3);text-transform:uppercase">Dias atraso</div>
+        <div style="font-weight:500;margin-top:3px;color:${dias>0?'var(--red)':'var(--teal)'}">${dias}</div></div>
+      <div><div style="font-size:.7rem;color:var(--ink-3);text-transform:uppercase">Multa</div>
+        <div style="font-weight:500;margin-top:3px;color:${multa>0?'var(--red)':'inherit'}">${fmtMoney(multa)}</div></div>
+    </div>`;
+}
+
+async function registar() {
+  const emprestimoId = document.getElementById('sel-emp').value;
+  const dataReal     = document.getElementById('data-real').value;
+  if(!emprestimoId){toast('Seleccione um empréstimo.','error');return;}
+  if(!dataReal){toast('Indique a data.','error');return;}
+  setLoading(true);
+  try {
+    const r = await API.registarDevolucao({emprestimoId,dataReal});
+    toast(`Devolvido! ${r.diasAtraso>0?'Multa: '+fmtMoney(r.multa):'Sem atraso.'}`, r.diasAtraso>0?'info':'success');
+    document.getElementById('preview').innerHTML='';
+    await load();
+  } catch(e){toast(e.message,'error');} finally{setLoading(false);}
+}
+
+function renderHistorico() {
+  const devolvidos=allEmps.filter(e=>e.estado==='Devolvido')
+    .sort((a,b)=>new Date(b.data_real_devolucao)-new Date(a.data_real_devolucao));
+  buildTable(document.getElementById('table-container'),[
+    {label:'Leitor',    render:r=>r.utilizador?.nome||r.utilizador_id},
+    {label:'Livro',     render:r=>r.livro?.titulo||r.livro_id},
+    {label:'Saída',     render:r=>fmtDate(r.data_saida)},
+    {label:'Previsto',  render:r=>fmtDate(r.data_prevista_devolucao)},
+    {label:'Devolvido', render:r=>fmtDate(r.data_real_devolucao)},
+    {label:'Multa',     render:r=>parseFloat(r.multa||0)>0?`<span style="color:var(--red);font-weight:500">${fmtMoney(r.multa)}</span>`:'—'},
+  ],devolvidos,null);
+}
+load();
+</script>
+</body>
+</html>

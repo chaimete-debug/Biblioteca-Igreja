@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Relatórios — Biblioteca</title>
+  <link rel="stylesheet" href="../css/style.css">
+  <script src="../js/config.js"></script><script src="../js/api.js"></script>
+  <script src="../js/utils.js"></script><script src="../js/nav.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+</head>
+<body>
+<div class="app-shell">
+  <header class="topbar">
+    <div class="topbar-brand"><div class="logo-mark">📚</div><h1>Biblio<span>teca</span></h1></div>
+    <div class="topbar-right"><button class="btn-logout" onclick="Auth.logout()">Sair</button></div>
+  </header>
+  <nav class="sidebar" id="sidebar"></nav>
+  <main class="main">
+    <div class="page-header"><div><h2>Relatórios</h2><p>Análise e estatísticas</p></div></div>
+    <div class="relatorio-grid">
+      <div class="relatorio-card" onclick="load('mais_emprestados')">
+        <div class="rc-header"><div class="rc-icon">📈</div><h4>Livros mais emprestados</h4><p>Ranking por nº de empréstimos</p></div>
+        <div class="rc-footer">Ver →</div>
+      </div>
+      <div class="relatorio-card" onclick="load('em_atraso')">
+        <div class="rc-header"><div class="rc-icon">⚠️</div><h4>Em atraso</h4><p>Livros não devolvidos no prazo</p></div>
+        <div class="rc-footer">Ver →</div>
+      </div>
+      <div class="relatorio-card" onclick="load('utilizadores_atraso')">
+        <div class="rc-header"><div class="rc-icon">👤</div><h4>Utilizadores em atraso</h4><p>Leitores com pendentes</p></div>
+        <div class="rc-footer">Ver →</div>
+      </div>
+      <div class="relatorio-card" onclick="load('stock')">
+        <div class="rc-header"><div class="rc-icon">📦</div><h4>Stock disponível</h4><p>Inventário de exemplares</p></div>
+        <div class="rc-footer">Ver →</div>
+      </div>
+      <div class="relatorio-card" onclick="load('historico')">
+        <div class="rc-header"><div class="rc-icon">📋</div><h4>Histórico completo</h4><p>Todos os empréstimos</p></div>
+        <div class="rc-footer">Ver →</div>
+      </div>
+    </div>
+    <div class="card" id="result-panel" style="display:none">
+      <div class="card-header">
+        <h3 id="result-title"></h3>
+        <div style="display:flex;gap:.5rem">
+          <button class="btn btn-ghost btn-sm" onclick="exportCSV()">⬇ CSV</button>
+          <button class="btn btn-ghost btn-sm" onclick="document.getElementById('result-panel').style.display='none'">✕</button>
+        </div>
+      </div>
+      <div id="result-chart" style="padding:1.25rem 1.5rem;display:none">
+        <div class="chart-container" style="height:240px">
+          <canvas id="relChart" role="img" aria-label="Gráfico do relatório"></canvas>
+        </div>
+      </div>
+      <div id="result-table"></div>
+    </div>
+  </main>
+</div>
+<nav class="mobile-nav" id="mobile-nav"></nav>
+<div id="toast" class="toast"></div>
+<div id="overlay" class="overlay hidden"><div class="spinner"></div></div>
+<script>
+buildNav('relatorios');
+let relChart, currentData=[], currentType='';
+const TITLES={mais_emprestados:'Livros mais emprestados',em_atraso:'Em atraso',
+  utilizadores_atraso:'Utilizadores em atraso',stock:'Stock disponível',historico:'Histórico'};
+
+async function load(tipo) {
+  currentType=tipo; setLoading(true);
+  try {
+    currentData = await API.getRelatorio(tipo);
+    document.getElementById('result-title').textContent=TITLES[tipo]||tipo;
+    document.getElementById('result-panel').style.display='';
+    const chartDiv=document.getElementById('result-chart');
+    if (tipo==='mais_emprestados') {
+      chartDiv.style.display='';
+      if(relChart) relChart.destroy();
+      const top=currentData.slice(0,10);
+      relChart=new Chart(document.getElementById('relChart'),{
+        type:'bar',
+        data:{labels:top.map(x=>x.livro?.length>25?x.livro.substring(0,25)+'…':x.livro),
+          datasets:[{label:'Empréstimos',data:top.map(x=>x.total),backgroundColor:'#c9a84c'}]},
+        options:{responsive:true,maintainAspectRatio:false,indexAxis:'y',
+          scales:{x:{beginAtZero:true,ticks:{stepSize:1}}},plugins:{legend:{display:false}}}
+      });
+    } else { chartDiv.style.display='none'; }
+    renderResultTable(tipo);
+  } catch(e){toast(e.message,'error');} finally{setLoading(false);}
+}
+
+function renderResultTable(tipo) {
+  const c=document.getElementById('result-table');
+  const hoje=new Date().toISOString().split('T')[0];
+  if(tipo==='mais_emprestados') {
+    buildTable(c,[{key:'livro',label:'Livro'},{key:'total',label:'Empréstimos',render:r=>`<strong>${r.total}</strong>`}],currentData,null);
+  } else if(tipo==='em_atraso') {
+    buildTable(c,[
+      {label:'Leitor',  render:r=>r.utilizador?.nome||r.utilizador_id},
+      {label:'Livro',   render:r=>r.livro?.titulo||r.livro_id},
+      {label:'Saída',   render:r=>fmtDate(r.data_saida)},
+      {label:'Devia devolver',render:r=>`<span style="color:var(--red)">${fmtDate(r.data_prevista_devolucao)}</span>`},
+      {label:'Dias',    render:r=>`<strong style="color:var(--red)">${Math.floor((new Date(hoje)-new Date(r.data_prevista_devolucao))/86400000)}</strong>`},
+    ],currentData,null);
+  } else if(tipo==='utilizadores_atraso') {
+    buildTable(c,[
+      {key:'nome',  label:'Nome'},
+      {key:'email', label:'Email'},
+      {key:'telefone',label:'Telefone'},
+      {key:'count', label:'Em atraso',render:r=>`<strong style="color:var(--red)">${r.count}</strong>`},
+    ],currentData,null);
+  } else if(tipo==='stock') {
+    buildTable(c,[
+      {key:'codigo',     label:'Código'},
+      {key:'titulo',     label:'Título'},
+      {key:'categoria',  label:'Categoria'},
+      {key:'quantidade', label:'Total'},
+      {key:'disponiveis',label:'Disponíveis',render:r=>`<strong style="color:${parseInt(r.disponiveis)===0?'var(--red)':'var(--teal)'}">${r.disponiveis}</strong>`},
+      {key:'estado',     label:'Estado',render:r=>estadoBadge(r.estado)},
+    ],currentData,null);
+  } else if(tipo==='historico') {
+    buildTable(c,[
+      {label:'Leitor',  render:r=>r.utilizador?.nome||r.utilizador_id},
+      {label:'Livro',   render:r=>r.livro?.titulo||r.livro_id},
+      {label:'Saída',   render:r=>fmtDate(r.data_saida)},
+      {label:'Previsto',render:r=>fmtDate(r.data_prevista_devolucao)},
+      {label:'Devolvido',render:r=>r.data_real_devolucao?fmtDate(r.data_real_devolucao):'—'},
+      {label:'Estado',  render:r=>estadoBadge(r.estado)},
+      {label:'Multa',   render:r=>parseFloat(r.multa||0)>0?fmtMoney(r.multa):'—'},
+    ],currentData,null);
+  }
+}
+function exportCSV() {
+  if(!currentData.length) return;
+  const keys=Object.keys(currentData[0]);
+  const rows=[keys.join(','),...currentData.map(r=>keys.map(k=>`"${(r[k]||'').toString().replace(/"/g,'""')}"`).join(','))];
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([rows.join('\n')],{type:'text/csv'}));
+  a.download=`relatorio_${currentType}_${today()}.csv`; a.click();
+}
+</script>
+</body>
+</html>

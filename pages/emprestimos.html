@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Empréstimos — Biblioteca</title>
+  <link rel="stylesheet" href="../css/style.css">
+  <script src="../js/config.js"></script><script src="../js/api.js"></script>
+  <script src="../js/utils.js"></script><script src="../js/nav.js"></script>
+</head>
+<body>
+<div class="app-shell">
+  <header class="topbar">
+    <div class="topbar-brand"><div class="logo-mark">📚</div><h1>Biblio<span>teca</span></h1></div>
+    <div class="topbar-right"><button class="btn-logout" onclick="Auth.logout()">Sair</button></div>
+  </header>
+  <nav class="sidebar" id="sidebar"></nav>
+  <main class="main">
+    <div class="page-header">
+      <div><h2>Empréstimos</h2><p>Registar e acompanhar empréstimos</p></div>
+      <button class="btn btn-gold" onclick="abrirModal()">+ Novo empréstimo</button>
+    </div>
+    <div id="alert-area"></div>
+    <div class="tabs-bar">
+      <button class="tab-btn active" onclick="switchTab('activos',this)">Activos</button>
+      <button class="tab-btn" onclick="switchTab('atrasados',this)">Em atraso</button>
+      <button class="tab-btn" onclick="switchTab('historico',this)">Histórico</button>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <div class="search-bar"><span>🔍</span>
+          <input type="text" id="search" placeholder="Pesquisar..." oninput="renderTable()">
+        </div>
+        <span id="count-label" style="font-size:.8rem;color:var(--ink-3)"></span>
+      </div>
+      <div id="table-container"></div>
+    </div>
+  </main>
+</div>
+<nav class="mobile-nav" id="mobile-nav"></nav>
+
+<div class="modal" id="modal-emp">
+  <div class="modal-backdrop"></div>
+  <div class="modal-box">
+    <div class="modal-header"><h3>Novo empréstimo</h3>
+      <button class="modal-close" onclick="closeModal('modal-emp')">×</button></div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group full"><label>Leitor</label>
+          <select id="sel-util" style="width:100%"></select></div>
+        <div class="form-group full"><label>Livro</label>
+          <select id="sel-livro" style="width:100%"></select></div>
+        <div class="form-group"><label>Data de saída</label>
+          <input type="date" id="e-saida"></div>
+        <div class="form-group"><label>Data prevista de devolução</label>
+          <input type="date" id="e-retorno"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal-emp')">Cancelar</button>
+      <button class="btn btn-primary" onclick="save()">Confirmar empréstimo</button>
+    </div>
+  </div>
+</div>
+<div id="toast" class="toast"></div>
+<div id="overlay" class="overlay hidden"><div class="spinner"></div></div>
+<script>
+buildNav('emprestimos');
+let allEmps=[], allLivros=[], allUtils=[], currentTab='activos';
+
+async function load() {
+  setLoading(true);
+  try {
+    [allEmps, allLivros, allUtils] = await Promise.all([
+      API.getEmprestimos(), API.getLivros(), API.getUtilizadores()
+    ]);
+    const hoje = new Date().toISOString().split('T')[0];
+    const atrasados = allEmps.filter(e=>e.estado==='Activo'&&e.data_prevista_devolucao<hoje);
+    document.getElementById('alert-area').innerHTML = atrasados.length
+      ? `<div class="alert alert-danger" style="margin-bottom:1rem">⚠️ ${atrasados.length} empréstimo(s) em atraso.</div>` : '';
+    renderTable();
+  } catch(e) { toast(e.message,'error'); } finally { setLoading(false); }
+}
+function switchTab(tab, el) {
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  el.classList.add('active'); currentTab=tab; renderTable();
+}
+function renderTable() {
+  const q    = document.getElementById('search').value.toLowerCase();
+  const hoje = new Date().toISOString().split('T')[0];
+  let rows = allEmps.filter(e => {
+    const txt = `${e.livro?.titulo||''} ${e.utilizador?.nome||''}`.toLowerCase();
+    return !q || txt.includes(q);
+  });
+  if (currentTab==='activos')   rows=rows.filter(e=>e.estado==='Activo');
+  if (currentTab==='atrasados') rows=rows.filter(e=>e.estado==='Activo'&&e.data_prevista_devolucao<hoje);
+  if (currentTab==='historico') rows=rows.filter(e=>e.estado==='Devolvido');
+  document.getElementById('count-label').textContent=`${rows.length} registo(s)`;
+  buildTable(document.getElementById('table-container'), [
+    {label:'Leitor',  render:r=>r.utilizador?.nome||r.utilizador_id},
+    {label:'Livro',   render:r=>r.livro?.titulo||r.livro_id},
+    {label:'Saída',   render:r=>fmtDate(r.data_saida)},
+    {label:'Devolução prevista', render:r=>{
+      const late=r.estado==='Activo'&&r.data_prevista_devolucao<hoje;
+      return `<span style="color:${late?'var(--red)':'inherit'};font-weight:${late?500:400}">${fmtDate(r.data_prevista_devolucao)}</span>`;
+    }},
+    {label:'Devolvido', render:r=>r.data_real_devolucao?fmtDate(r.data_real_devolucao):'—'},
+    {label:'Estado',    render:r=>{
+      const late=r.estado==='Activo'&&r.data_prevista_devolucao<hoje;
+      return estadoBadge(late?'Atrasado':r.estado);
+    }},
+    {label:'Multa', render:r=>parseFloat(r.multa||0)>0?`<span style="color:var(--red);font-weight:500">${fmtMoney(r.multa)}</span>`:'—'},
+  ], rows, r=>r.estado==='Activo'
+    ?`<a class="btn btn-teal btn-xs" href="devolucoes.html?emp=${r.id}">Devolver</a>`:'');
+}
+async function abrirModal() {
+  const [l,u] = await Promise.all([API.getLivros(),API.getUtilizadores()]);
+  const disp = l.filter(x=>x.estado==='Disponível');
+  document.getElementById('sel-livro').innerHTML = disp.length
+    ? disp.map(x=>`<option value="${x.id}">${x.titulo} (${x.disponiveis} disp.)</option>`).join('')
+    : '<option value="">Sem livros disponíveis</option>';
+  document.getElementById('sel-util').innerHTML = u.filter(x=>x.estado_conta==='Activo')
+    .map(x=>`<option value="${x.id}">${x.nome}</option>`).join('');
+  document.getElementById('e-saida').value = today();
+  document.getElementById('e-retorno').value = addDays(today(),14);
+  openModal('modal-emp');
+}
+async function save() {
+  const livroId=document.getElementById('sel-livro').value;
+  const utilizadorId=document.getElementById('sel-util').value;
+  const dataSaida=document.getElementById('e-saida').value;
+  const dataPrevistaDevolucao=document.getElementById('e-retorno').value;
+  if(!livroId||!utilizadorId){toast('Seleccione livro e leitor.','error');return;}
+  setLoading(true);
+  try {
+    await API.addEmprestimo({livroId,utilizadorId,dataSaida,dataPrevistaDevolucao});
+    toast('Empréstimo registado!'); closeModal('modal-emp'); await load();
+  } catch(e){toast(e.message,'error');} finally{setLoading(false);}
+}
+load();
+</script>
+</body>
+</html>

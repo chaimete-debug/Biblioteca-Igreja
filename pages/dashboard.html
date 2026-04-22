@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Painel — Biblioteca</title>
+  <link rel="stylesheet" href="../css/style.css">
+  <script src="../js/config.js"></script>
+  <script src="../js/api.js"></script>
+  <script src="../js/utils.js"></script>
+  <script src="../js/nav.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+</head>
+<body>
+<div class="app-shell">
+  <header class="topbar">
+    <div class="topbar-brand"><div class="logo-mark">📚</div><h1>Biblio<span>teca</span></h1></div>
+    <div class="topbar-right"><button class="btn-logout" onclick="Auth.logout()">Sair</button></div>
+  </header>
+  <nav class="sidebar" id="sidebar"></nav>
+  <main class="main">
+    <div class="page-header">
+      <div><h2>Painel</h2><p id="date-label"></p></div>
+      <button class="btn btn-ghost btn-sm" onclick="API.refresh(); load()">↺ Actualizar</button>
+    </div>
+    <div id="alert-area"></div>
+    <div class="metrics-grid" id="metrics"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1.5rem" class="chart-row">
+      <div class="card">
+        <div class="card-header"><h3>Empréstimos por categoria</h3></div>
+        <div class="card-body"><div class="chart-container" style="height:220px">
+          <canvas id="chartCat" role="img" aria-label="Empréstimos por categoria"></canvas>
+        </div></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><h3>Estado do acervo</h3></div>
+        <div class="card-body"><div class="chart-container" style="height:220px">
+          <canvas id="chartStock" role="img" aria-label="Estado do acervo"></canvas>
+        </div></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <h3>Empréstimos activos</h3>
+        <a href="emprestimos.html" class="btn btn-ghost btn-sm">Ver todos →</a>
+      </div>
+      <div id="recent-loans"></div>
+    </div>
+  </main>
+</div>
+<nav class="mobile-nav" id="mobile-nav"></nav>
+<div id="toast" class="toast"></div>
+<div id="overlay" class="overlay hidden"><div class="spinner"></div></div>
+<script>
+buildNav('dashboard');
+document.getElementById('date-label').textContent =
+  new Date().toLocaleDateString('pt-PT',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
+
+let chartCat, chartStock;
+
+async function load() {
+  setLoading(true);
+  try {
+    const [dash, emps, livros] = await Promise.all([
+      API.getDashboard(),
+      API.getEmprestimos(),
+      API.getLivros(),
+    ]);
+
+    // Metrics
+    document.getElementById('metrics').innerHTML = `
+      <div class="metric-card mc-gold"><div class="metric-label">Total de livros</div>
+        <div class="metric-value">${dash.totalLivros}</div>
+        <div class="metric-sub">${dash.totalExemplares} exemplares</div></div>
+      <div class="metric-card mc-teal"><div class="metric-label">Leitores activos</div>
+        <div class="metric-value">${dash.totalLeitores}</div></div>
+      <div class="metric-card mc-blue"><div class="metric-label">Emprestados</div>
+        <div class="metric-value">${dash.livrosEmprestados}</div></div>
+      <div class="metric-card mc-orange"><div class="metric-label">Reservas</div>
+        <div class="metric-value">${dash.reservasActivas}</div></div>
+      <div class="metric-card mc-red"><div class="metric-label">Em atraso</div>
+        <div class="metric-value">${dash.alertasAtraso}</div>
+        <div class="metric-sub">Multas: ${fmtMoney(dash.multaTotal)}</div></div>`;
+
+    // Alert
+    document.getElementById('alert-area').innerHTML = dash.alertasAtraso > 0
+      ? `<div class="alert alert-danger" style="margin-bottom:1.5rem">⚠️ ${dash.alertasAtraso} empréstimo(s) em atraso.
+          <a href="emprestimos.html" style="font-weight:500;text-decoration:underline;margin-left:8px">Ver →</a></div>`
+      : '';
+
+    // Chart categoria
+    const catCount = {};
+    emps.forEach(e => {
+      const cat = e.livro?.categoria || livros.find(l=>l.id===e.livro_id)?.categoria || 'Outro';
+      catCount[cat] = (catCount[cat]||0) + 1;
+    });
+    const cats   = Object.keys(catCount);
+    const COLORS = ['#c9a84c','#1d7a6b','#2d5fa6','#b84444','#c46a1f','#6b4fa6'];
+    if (chartCat) chartCat.destroy();
+    chartCat = new Chart(document.getElementById('chartCat'), {
+      type: 'doughnut',
+      data: { labels: cats, datasets: [{ data: cats.map(c=>catCount[c]), backgroundColor: COLORS, borderWidth:0 }] },
+      options: { responsive:true, maintainAspectRatio:false, plugins:{ legend:{ position:'right', labels:{ boxWidth:12, font:{size:12} } } } }
+    });
+
+    // Chart stock
+    const disp  = livros.reduce((s,l)=>s+parseInt(l.disponiveis||0),0);
+    const total = livros.reduce((s,l)=>s+parseInt(l.quantidade||0),0);
+    if (chartStock) chartStock.destroy();
+    chartStock = new Chart(document.getElementById('chartStock'), {
+      type: 'bar',
+      data: { labels:['Exemplares'],
+        datasets:[
+          {label:'Disponíveis', data:[disp],        backgroundColor:'#1d7a6b'},
+          {label:'Emprestados', data:[total-disp],  backgroundColor:'#c9a84c'},
+        ]},
+      options:{ responsive:true, maintainAspectRatio:false,
+        scales:{ x:{stacked:true}, y:{stacked:true,beginAtZero:true} },
+        plugins:{ legend:{ labels:{boxWidth:12} } } }
+    });
+
+    // Recent loans table
+    const hoje   = new Date().toISOString().split('T')[0];
+    const activos = emps.filter(e=>e.estado==='Activo').slice(0,10);
+    buildTable(document.getElementById('recent-loans'), [
+      { label:'Livro',    render: r => r.livro?.titulo || r.livro_id },
+      { label:'Leitor',   render: r => r.utilizador?.nome || r.utilizador_id },
+      { label:'Saída',    render: r => fmtDate(r.data_saida) },
+      { label:'Devolução prevista', render: r => {
+        const late = r.data_prevista_devolucao < hoje;
+        return `<span style="color:${late?'var(--red)':'inherit'}">${fmtDate(r.data_prevista_devolucao)}${late?' ⚠️':''}</span>`;
+      }},
+      { label:'Estado',   render: r => {
+        const late = r.estado==='Activo' && r.data_prevista_devolucao < hoje;
+        return estadoBadge(late?'Atrasado':r.estado);
+      }},
+    ], activos, null);
+
+  } catch(err) { toast(err.message,'error'); }
+  finally { setLoading(false); }
+}
+load();
+</script>
+</body>
+</html>

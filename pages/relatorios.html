@@ -1,15 +1,12 @@
 <!DOCTYPE html>
 <html lang="pt">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Livros — Biblioteca</title>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Relatórios — Biblioteca</title>
   <link rel="stylesheet" href="../css/style.css">
-  <script src="../js/config.js"></script>
-  <script src="../js/api.js"></script>
-  <script src="../js/utils.js"></script>
-  <script src="../js/nav.js"></script>
-  <script src="../js/scanner.js"></script>
+  <script src="../js/config.js"></script><script src="../js/api.js"></script>
+  <script src="../js/utils.js"></script><script src="../js/nav.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 </head>
 <body>
 <div class="app-shell">
@@ -19,181 +16,127 @@
   </header>
   <nav class="sidebar" id="sidebar"></nav>
   <main class="main">
-    <div class="page-header">
-      <div><h2>Livros</h2><p>Gestão do acervo bibliográfico</p></div>
-      <button class="btn btn-gold" onclick="abrirNovoLivro()">+ Novo livro</button>
-    </div>
-
-    <!-- Scanner banner -->
-    <div style="background:var(--ink);border-radius:var(--radius-lg);padding:1rem 1.25rem;
-      display:flex;align-items:center;justify-content:space-between;gap:1rem;
-      margin-bottom:1.5rem;flex-wrap:wrap">
-      <div>
-        <div style="color:#fff;font-weight:500">📷 Registar por código de barras ou QR</div>
-        <div style="color:rgba(255,255,255,.45);font-size:.78rem;margin-top:2px">Usa a câmara para ler o ISBN do livro</div>
+    <div class="page-header"><div><h2>Relatórios</h2><p>Análise e estatísticas</p></div></div>
+    <div class="relatorio-grid">
+      <div class="relatorio-card" onclick="load('mais_emprestados')">
+        <div class="rc-header"><div class="rc-icon">📈</div><h4>Livros mais emprestados</h4><p>Ranking por nº de empréstimos</p></div>
+        <div class="rc-footer">Ver →</div>
       </div>
-      <button class="btn" onclick="abrirScanner()"
-        style="background:var(--gold);color:var(--ink);font-weight:500;white-space:nowrap">
-        📷 Abrir câmara
-      </button>
+      <div class="relatorio-card" onclick="load('em_atraso')">
+        <div class="rc-header"><div class="rc-icon">⚠️</div><h4>Em atraso</h4><p>Livros não devolvidos no prazo</p></div>
+        <div class="rc-footer">Ver →</div>
+      </div>
+      <div class="relatorio-card" onclick="load('utilizadores_atraso')">
+        <div class="rc-header"><div class="rc-icon">👤</div><h4>Utilizadores em atraso</h4><p>Leitores com pendentes</p></div>
+        <div class="rc-footer">Ver →</div>
+      </div>
+      <div class="relatorio-card" onclick="load('stock')">
+        <div class="rc-header"><div class="rc-icon">📦</div><h4>Stock disponível</h4><p>Inventário de exemplares</p></div>
+        <div class="rc-footer">Ver →</div>
+      </div>
+      <div class="relatorio-card" onclick="load('historico')">
+        <div class="rc-header"><div class="rc-icon">📋</div><h4>Histórico completo</h4><p>Todos os empréstimos</p></div>
+        <div class="rc-footer">Ver →</div>
+      </div>
     </div>
-
-    <div class="card">
+    <div class="card" id="result-panel" style="display:none">
       <div class="card-header">
-        <div class="toolbar-left">
-          <div class="search-bar"><span>🔍</span>
-            <input type="text" id="search" placeholder="Título, autor, ISBN..." oninput="renderTable()">
-          </div>
-          <select id="filter-cat" onchange="renderTable()" style="width:auto;padding:6px 10px">
-            <option value="">Todas as categorias</option>
-            <option>Bíblia e Teologia</option><option>Devocionais</option><option>Pregação e Homilética</option>
-            <option>Música e Louvor</option><option>Missões e Evangelismo</option><option>Família e Casamento</option>
-            <option>Juventude</option><option>Liderança Cristã</option><option>História da Igreja</option>
-            <option>Educação Cristã</option><option>Aconselhamento</option><option>Outro</option>
-          </select>
-          <select id="filter-estado" onchange="renderTable()" style="width:auto;padding:6px 10px">
-            <option value="">Todos os estados</option>
-            <option>Disponível</option><option>Indisponível</option>
-          </select>
+        <h3 id="result-title"></h3>
+        <div style="display:flex;gap:.5rem">
+          <button class="btn btn-ghost btn-sm" onclick="exportCSV()">⬇ CSV</button>
+          <button class="btn btn-ghost btn-sm" onclick="document.getElementById('result-panel').style.display='none'">✕</button>
         </div>
-        <span id="count-label" style="font-size:.8rem;color:var(--ink-3)"></span>
       </div>
-      <div id="table-container"></div>
+      <div id="result-chart" style="padding:1.25rem 1.5rem;display:none">
+        <div class="chart-container" style="height:240px">
+          <canvas id="relChart" role="img" aria-label="Gráfico do relatório"></canvas>
+        </div>
+      </div>
+      <div id="result-table"></div>
     </div>
   </main>
 </div>
 <nav class="mobile-nav" id="mobile-nav"></nav>
-
-<!-- Modal Livro -->
-<div class="modal" id="modal-livro">
-  <div class="modal-backdrop"></div>
-  <div class="modal-box">
-    <div class="modal-header">
-      <h3 id="modal-title">Novo livro</h3>
-      <button class="modal-close" onclick="closeModal('modal-livro')">×</button>
-    </div>
-    <div class="modal-body">
-      <form id="form-livro">
-        <div class="form-grid">
-          <div class="form-group full"><label>Título</label>
-            <input type="text" name="titulo" required autofocus placeholder="Título completo"></div>
-          <div class="form-group"><label>Autor</label>
-            <input type="text" name="autor" required placeholder="Nome do autor"></div>
-          <div class="form-group"><label>Editora</label>
-            <input type="text" name="editora" placeholder="Nome da editora"></div>
-          <div class="form-group"><label>Categoria</label>
-            <select name="categoria">
-              <option>Bíblia e Teologia</option><option>Devocionais</option><option>Pregação e Homilética</option>
-              <option>Música e Louvor</option><option>Missões e Evangelismo</option><option>Família e Casamento</option>
-              <option>Juventude</option><option>Liderança Cristã</option><option>História da Igreja</option>
-              <option>Educação Cristã</option><option>Aconselhamento</option><option>Outro</option>
-            </select></div>
-          <div class="form-group"><label>Código</label>
-            <input type="text" name="codigo" placeholder="Ex: LV-001"></div>
-          <div class="form-group">
-            <label>ISBN <button type="button"
-              onclick="Scanner.open(c=>{document.querySelector('input[name=isbn]').value=c;toast('ISBN: '+c,'success');})"
-              style="margin-left:6px;font-size:.7rem;padding:2px 8px;border-radius:4px;
-                border:1px solid var(--mist-3);background:var(--mist);cursor:pointer">📷 Scan</button></label>
-            <input type="text" name="isbn" placeholder="978-..."></div>
-          <div class="form-group"><label>Nº exemplares</label>
-            <input type="number" name="quantidade" min="1" value="1"></div>
-          <div class="form-group"><label>Estante</label>
-            <input type="text" name="localizacao" placeholder="Ex: A3-P2"></div>
-          <div class="form-group"><label>Estado</label>
-            <select name="estado">
-              <option>Disponível</option><option>Indisponível</option>
-              <option>Em restauro</option><option>Perdido</option>
-            </select></div>
-        </div>
-      </form>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-ghost" onclick="closeModal('modal-livro')">Cancelar</button>
-      <button class="btn btn-primary" onclick="saveLivro()">Guardar</button>
-    </div>
-  </div>
-</div>
-
 <div id="toast" class="toast"></div>
 <div id="overlay" class="overlay hidden"><div class="spinner"></div></div>
 <script>
-buildNav('livros');
-let allLivros = [], editingId = null;
+buildNav('relatorios');
+let relChart, currentData=[], currentType='';
+const TITLES={mais_emprestados:'Livros mais emprestados',em_atraso:'Em atraso',
+  utilizadores_atraso:'Utilizadores em atraso',stock:'Stock disponível',historico:'Histórico'};
 
-function abrirScanner() {
-  Scanner.open(code => {
-    const existing = allLivros.find(l => l.isbn === code);
-    if (existing) { toast('Livro já registado: ' + existing.titulo, 'info'); editLivro(existing.id); return; }
-    editingId = null;
-    document.getElementById('form-livro').reset();
-    document.getElementById('modal-title').textContent = 'Novo livro — ISBN lido';
-    document.querySelector('input[name=isbn]').value = code;
-    toast('ISBN ' + code + ' lido!', 'success');
-    openModal('modal-livro');
-    setTimeout(() => document.querySelector('input[name=titulo]').focus(), 150);
-  });
-}
-function abrirNovoLivro() {
-  editingId = null;
-  document.getElementById('modal-title').textContent = 'Novo livro';
-  document.getElementById('form-livro').reset();
-  openModal('modal-livro');
-}
-async function load() {
-  setLoading(true);
-  try { allLivros = await API.getLivros(); renderTable(); }
-  catch(e) { toast(e.message,'error'); }
-  finally { setLoading(false); }
-}
-function renderTable() {
-  const q    = document.getElementById('search').value.toLowerCase();
-  const fCat = document.getElementById('filter-cat').value;
-  const fEst = document.getElementById('filter-estado').value;
-  const rows = allLivros.filter(l =>
-    (!q || (l.titulo||'').toLowerCase().includes(q) || (l.autor||'').toLowerCase().includes(q) || (l.isbn||'').includes(q) || (l.codigo||'').toLowerCase().includes(q)) &&
-    (!fCat || l.categoria===fCat) && (!fEst || l.estado===fEst)
-  );
-  document.getElementById('count-label').textContent = `${rows.length} livro(s)`;
-  buildTable(document.getElementById('table-container'), [
-    { key:'codigo',     label:'Código' },
-    { key:'titulo',     label:'Título' },
-    { key:'autor',      label:'Autor' },
-    { key:'categoria',  label:'Categoria', render:r=>`<span class="badge badge-gold">${r.categoria||''}</span>` },
-    { key:'isbn',       label:'ISBN' },
-    { key:'quantidade', label:'Exemplares', render:r=>`${r.disponiveis}/${r.quantidade}` },
-    { key:'localizacao',label:'Estante' },
-    { key:'estado',     label:'Estado', render:r=>estadoBadge(r.estado) },
-  ], rows, r=>`
-    <button class="btn btn-ghost btn-xs" onclick="editLivro('${r.id}')">✏️</button>
-    <button class="btn btn-danger btn-xs" onclick="deleteLivro('${r.id}')">🗑</button>`);
-}
-function editLivro(id) {
-  const l = allLivros.find(x=>x.id===id); if(!l) return;
-  editingId = id;
-  document.getElementById('modal-title').textContent = 'Editar livro';
-  fillForm('form-livro', {...l, estadoConta: l.estado_conta});
-  openModal('modal-livro');
-}
-async function saveLivro() {
-  const data = formToObj('form-livro');
-  if (!data.titulo||!data.autor) { toast('Preencha título e autor.','error'); return; }
-  setLoading(true);
+async function load(tipo) {
+  currentType=tipo; setLoading(true);
   try {
-    if (editingId) { data.id=editingId; await API.updateLivro(data); toast('Actualizado!'); }
-    else { await API.addLivro(data); toast('Livro adicionado!'); }
-    closeModal('modal-livro'); await load();
-  } catch(e) { toast(e.message,'error'); }
-  finally { setLoading(false); }
+    currentData = await API.getRelatorio(tipo);
+    document.getElementById('result-title').textContent=TITLES[tipo]||tipo;
+    document.getElementById('result-panel').style.display='';
+    const chartDiv=document.getElementById('result-chart');
+    if (tipo==='mais_emprestados') {
+      chartDiv.style.display='';
+      if(relChart) relChart.destroy();
+      const top=currentData.slice(0,10);
+      relChart=new Chart(document.getElementById('relChart'),{
+        type:'bar',
+        data:{labels:top.map(x=>x.livro?.length>25?x.livro.substring(0,25)+'…':x.livro),
+          datasets:[{label:'Empréstimos',data:top.map(x=>x.total),backgroundColor:'#c9a84c'}]},
+        options:{responsive:true,maintainAspectRatio:false,indexAxis:'y',
+          scales:{x:{beginAtZero:true,ticks:{stepSize:1}}},plugins:{legend:{display:false}}}
+      });
+    } else { chartDiv.style.display='none'; }
+    renderResultTable(tipo);
+  } catch(e){toast(e.message,'error');} finally{setLoading(false);}
 }
-async function deleteLivro(id) {
-  if(!confirm('Eliminar este livro?')) return;
-  setLoading(true);
-  try { await API.deleteLivro(id); toast('Eliminado.'); await load(); }
-  catch(e) { toast(e.message,'error'); }
-  finally { setLoading(false); }
+
+function renderResultTable(tipo) {
+  const c=document.getElementById('result-table');
+  const hoje=new Date().toISOString().split('T')[0];
+  if(tipo==='mais_emprestados') {
+    buildTable(c,[{key:'livro',label:'Livro'},{key:'total',label:'Empréstimos',render:r=>`<strong>${r.total}</strong>`}],currentData,null);
+  } else if(tipo==='em_atraso') {
+    buildTable(c,[
+      {label:'Leitor',  render:r=>r.utilizador?.nome||r.utilizador_id},
+      {label:'Livro',   render:r=>r.livro?.titulo||r.livro_id},
+      {label:'Saída',   render:r=>fmtDate(r.data_saida)},
+      {label:'Devia devolver',render:r=>`<span style="color:var(--red)">${fmtDate(r.data_prevista_devolucao)}</span>`},
+      {label:'Dias',    render:r=>`<strong style="color:var(--red)">${Math.floor((new Date(hoje)-new Date(r.data_prevista_devolucao))/86400000)}</strong>`},
+    ],currentData,null);
+  } else if(tipo==='utilizadores_atraso') {
+    buildTable(c,[
+      {key:'nome',  label:'Nome'},
+      {key:'email', label:'Email'},
+      {key:'telefone',label:'Telefone'},
+      {key:'count', label:'Em atraso',render:r=>`<strong style="color:var(--red)">${r.count}</strong>`},
+    ],currentData,null);
+  } else if(tipo==='stock') {
+    buildTable(c,[
+      {key:'codigo',     label:'Código'},
+      {key:'titulo',     label:'Título'},
+      {key:'categoria',  label:'Categoria'},
+      {key:'quantidade', label:'Total'},
+      {key:'disponiveis',label:'Disponíveis',render:r=>`<strong style="color:${parseInt(r.disponiveis)===0?'var(--red)':'var(--teal)'}">${r.disponiveis}</strong>`},
+      {key:'estado',     label:'Estado',render:r=>estadoBadge(r.estado)},
+    ],currentData,null);
+  } else if(tipo==='historico') {
+    buildTable(c,[
+      {label:'Leitor',  render:r=>r.utilizador?.nome||r.utilizador_id},
+      {label:'Livro',   render:r=>r.livro?.titulo||r.livro_id},
+      {label:'Saída',   render:r=>fmtDate(r.data_saida)},
+      {label:'Previsto',render:r=>fmtDate(r.data_prevista_devolucao)},
+      {label:'Devolvido',render:r=>r.data_real_devolucao?fmtDate(r.data_real_devolucao):'—'},
+      {label:'Estado',  render:r=>estadoBadge(r.estado)},
+      {label:'Multa',   render:r=>parseFloat(r.multa||0)>0?fmtMoney(r.multa):'—'},
+    ],currentData,null);
+  }
 }
-load();
+function exportCSV() {
+  if(!currentData.length) return;
+  const keys=Object.keys(currentData[0]);
+  const rows=[keys.join(','),...currentData.map(r=>keys.map(k=>`"${(r[k]||'').toString().replace(/"/g,'""')}"`).join(','))];
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([rows.join('\n')],{type:'text/csv'}));
+  a.download=`relatorio_${currentType}_${today()}.csv`; a.click();
+}
 </script>
 </body>
 </html>
